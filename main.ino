@@ -13,7 +13,7 @@ const char* ssid = ""; //wifi ssid here
 const char* password = ""; //wifi password here
 char HOST_ADDRESS[] = "**********-ats.iot.ap-northeast-2.amazonaws.com";
 char CLIENT_ID[]= "esp_sensor";
-char sTOPIC_NAME[]= "$aws/things/esp_ensor/shadow/update"; // subscribe topic name
+char sTOPIC_NAME[]= "$aws/things/esp_sensor/shadow/update"; // subscribe topic name
 char pTOPIC_NAME[]= "$aws/things/esp_sensor/shadow/update"; // publish topic name
 
 int msgCount=0,msgReceived = 0;
@@ -26,7 +26,12 @@ WiFiClientSecure net = WiFiClientSecure();
 Adafruit_BME280 bme;
 HardwareSerial port(2);
 
-const int trigPin = 18; //origin 22
+unsigned long pre_time = 0;
+unsigned long cur_time = 0;
+
+const int duration = 10000;
+
+const int trigPin = 18;
 const int echoPin = 23;
 const int ledPin = 16;
 
@@ -42,29 +47,6 @@ void mySubCallBackHandler (char *topicName, int payloadLen, char *payLoad)
   strncpy(rcvdPayload,payLoad,payloadLen);
   rcvdPayload[payloadLen] = 0;
   msgReceived = 1;
-}
-
-void publishJson(char *topic, StaticJsonDocument<200> doc)
-{
-  JsonObject state = doc.createNestedObject("state");
-  JsonObject reported = state.createNestedObject("reported");
-
-  reported["temp"] = doc["temp"];
-  reported["humid"] = doc["humid"];
-  reported["press"] = doc["press"];
-  reported["feed_eaten"] = checkDistance();
-
-  doc.remove("temp");
-  doc.remove("humid");
-  doc.remove("press");
-
-
-  char jsonBuffer[512];
-  serializeJson(doc, jsonBuffer);
-
-  bool success = esp_sensor.publish(sTOPIC_NAME, jsonBuffer);
-  if (!success)
-  {}
 }
 
 void connectAWS()
@@ -119,15 +101,42 @@ void connectBme()
   Serial.println("Connected to BME280");
 }
 
+void publishJson(char *topic, bool feedEaten)
+{
+  StaticJsonDocument<200> doc;
+
+  JsonObject state = doc.createNestedObject("state");
+  JsonObject reported = state.createNestedObject("reported");
+
+  reported["temp"] = bme.readTemperature();
+  reported["humid"] = bme.readHumidity();
+  reported["press"] = bme.readPressure();
+  reported["feed_eaten"] = feedEaten;
+
+  char jsonBuffer[512];
+  serializeJson(doc, jsonBuffer);
+  while(esp_sensor.publish(pTOPIC_NAME, jsonBuffer) != 0){
+    Serial.println("Publish failed");
+    delay(10);
+  }
+  Serial.println("Publish Message");
+}
+
 void publishMeasurment()
 {
   StaticJsonDocument<200> doc;
 
-  doc["temp"] = bme.readTemperature();
-  doc["humid"] = bme.readHumidity();
-  doc["press"] = bme.readPressure() / 100.0F;
+  JsonObject state = doc.createNestedObject("state");
+  JsonObject reported = state.createNestedObject("reported");
 
-  publishJson(pTOPIC_NAME, doc);
+  reported["temp"] = bme.readTemperature();
+  reported["humid"] = bme.readHumidity();
+  reported["press"] = bme.readPressure() / 100.0F;
+  //reported["feed_eaten"] = false; //checkDistance();
+
+  char jsonBuffer[512];
+  serializeJson(doc, jsonBuffer);
+  esp_sensor.publish(pTOPIC_NAME, jsonBuffer);
 }
 
 bool checkDistance()
@@ -168,6 +177,7 @@ void playNote(int note){
 void setup()
 {
   Serial.begin(115200);
+  pre_time = millis();
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(ledPin, OUTPUT);
@@ -179,8 +189,12 @@ void setup()
 
 void loop()
 {
-  publishMeasurment();
+  cur_time = millis();
 
+  if( cur_time - pre_time > duration ) {
+  publishMeasurment();
+  pre_time = cur_time;
+  }
   if(msgReceived == 1)
   {
     msgReceived = 0;
@@ -192,24 +206,43 @@ void loop()
     feed_given = myObj["state"]["reported"]["feed_given"];
     Serial.print("FeedGiven is ");
     Serial.println(feed_given);
-    if (feed_given == true) {
-      digitalWrite(ledPin, HIGH);
-      playNote(0);
-      playNote(1);
-      playNote(2);
-      playNote(3);
-      playNote(4);
-      playNote(5);
-      playNote(6);
-      playNote(7);
-      playNote(4);
-      playNote(2);
-      playNote(0);
+    if (feed_given == true)
+    {
+        digitalWrite(ledPin, HIGH);
+        playNote(0);
+        playNote(1);
+        playNote(2);
+        playNote(3);
+        playNote(4);
+        playNote(5);
+        playNote(6);
+        playNote(7);
+        playNote(4);
+        playNote(2);
+        playNote(0);
+        digitalWrite(ledPin, LOW);
+        int f = 0;
+      for (int i = 0; i < 6; i++)
+      {
+        digitalWrite(ledPin, HIGH);
+        publishMeasurment();
+        delay(5000);
+        digitalWrite(ledPin, LOW);
+        delay(5000);
+        
+        if (checkDistance() == true) {f = f + 1;}
+      }
+      if (f > 1) {
+        publishJson(pTOPIC_NAME, true);
+      }
+      else{
+        publishJson(pTOPIC_NAME, false);
+      }
+      pre_time = millis();
     }
     else if (feed_given == false) {
       digitalWrite(ledPin, LOW);
     }
   }
 
-  delay(10000);
 }
