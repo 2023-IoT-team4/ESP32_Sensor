@@ -9,9 +9,9 @@
 
 AWS_IOT esp_sensor;
 
-const char* ssid = "HSA";
-const char* password = "tony1009";
-char HOST_ADDRESS[] = "a2njoj7j0f1n6u-ats.iot.ap-northeast-2.amazonaws.com";
+const char* ssid = ""; //wifi ssid here
+const char* password = ""; //wifi password here
+char HOST_ADDRESS[] = "**********-ats.iot.ap-northeast-2.amazonaws.com";
 char CLIENT_ID[]= "esp_sensor";
 char sTOPIC_NAME[]= "$aws/things/esp_ensor/shadow/update"; // subscribe topic name
 char pTOPIC_NAME[]= "$aws/things/esp_sensor/shadow/update"; // publish topic name
